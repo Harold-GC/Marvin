@@ -8,7 +8,6 @@ import sys
 import traceback
 import pprint
 import urllib3
-import time
 
 
 class ApiConnector():
