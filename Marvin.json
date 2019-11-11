@@ -1,0 +1,43 @@
+[
+    {
+        "name" : "Battletoads",
+	"cluster_external_ipaddress" : "10.63.30.205",
+	"username" : "admin",
+	"password" : "123_Qu3so",
+	"pub_key_name" : "Harold",
+	"pub_key_string" : "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDMBMbWh7iWMy1rHzdwTIfjGDGJqn14kyRgZzLjh98bPgRGxJhHm/xLyDp+0FRvaEpUMFBtA7AN98ptBU8FSTxQq05ksbvKhdTNm9yt/MgyxQkPdttDDvkhWzlhTggAn+7u7JMhmzmL2CKstViDtpnP/BHvZ5V0grsskXTQhhsHvCu5Oecqxi/OKcBDD8ckaD37YVZc+hb35M2kMLkvXXJz/TdxUa/nM27N/GXTEaRPDNaEUbhrs6d3qKbSXSuKqSuS0U4E3lz34Dv/5NIalRuphetsM/VuWaKf5W+KKYYDXT4RHpZuRZok/To1uLxsmvHrCj50VX+AV/ncgsHoq99/ harold.calderon@Harolds-MacBook-Pro.local",
+	"network_name" : "native",
+	"network_vlan" : "0",
+	"files_software_version" : "3.5.4",
+	"files_configuration" :
+	{
+            "name":"hgcFiles",
+            "dnsDomainName":"emea.nutanix.com",
+            "sizeGib":"1024",
+            "numCalculatedNvms":"3",
+            "numVcpus":"4",
+            "memoryGiB":"12",
+            "internalNetwork":
+               {"subnetMask":"255.255.252.0",
+                "defaultGateway":"10.63.28.1",
+                "uuid":"DO_NOT_DEFINE",
+                "pool":["10.63.31.201 10.63.31.204"]
+               },
+            "externalNetworks":
+               [{
+                 "subnetMask":"255.255.255.0",
+                 "defaultGateway":"192.168.100.1",
+                 "uuid":"DO_NOT_DEFINE",
+                 "pool":["192.168.100.2 192.168.100.4"]
+               }],
+            "dnsServerIpAddresses":["10.63.25.10"],
+            "ntpServers":["10.63.25.20"],
+            "windowsAdDomainName":"emea.nutanix.com",
+            "windowsAdUsername":"haroldg",
+            "windowsAdPassword":"Nutanix/4u",
+            "pdName":"NTNX-hgc-files"
+	}
+    }
+]
+
+		
