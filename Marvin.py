@@ -8,6 +8,7 @@ import sys
 import traceback
 import pprint
 import urllib3
+import argparse
 
 
 class ApiConnector():
@@ -68,7 +69,7 @@ class ConfigConnector():
         self.configuration = json.loads(cfg_json)
 
     def get_config_param(self, config_item, config_param):
-        return cfg_con.configuration[config_item][config_param]
+        return self.configuration[config_item][config_param]
 
     def set_config_param(self, config_item, config_param, param_value):
         self.configuration[config_item][config_param] = param_value
@@ -77,7 +78,7 @@ class ConfigConnector():
         self.configuration[config_item]['files_configuration']['internalNetwork']['uuid'] = uuid
 
     def set_external_network_uuid(self, config_item, uuid):
-        self.configuration[config_item]['files_configuration']['externalNetworks'][0]['uuid'] = files_network[0]['uuid']
+        self.configuration[config_item]['files_configuration']['externalNetworks'][0]['uuid'] = uuid
 
 
 class ClusterConfigurator():
@@ -100,7 +101,7 @@ class NetConfigurator():
         self.networks = self.get_networks()
 
     def get_networks(self):
-        status, networks = api_con.call_rest_api_v2_get(
+        status, networks = self.api_con.call_rest_api_v2_get(
             "networks")
         return networks['entities']
 
@@ -119,9 +120,6 @@ class NetConfigurator():
         return self._get_network_by_attribute("name", net_name)
 
     def get_network_by_uuid(self, network_uuid):
-        # status, network = api_con.call_rest_api_v2_get(
-        #    "networks/" + network_uuid)
-        # return network
         return self._get_network_by_attribute("uuid", network_uuid)
 
     def exist_network_with_vlan(self, network_vlan):
@@ -166,7 +164,7 @@ class FilesConfigurator():
         print("INFO: software_download: Downloading files with info: " +
               new_files_json)
         status_code, json_response = self.api_con.call_rest_api_v2_post(
-            "upgrade/afs/softwares/3.5.4/download", new_files_json)
+            "upgrade/afs/softwares/" + files_version + "/download", new_files_json)
         return json_response
 
     def deploy_files_server(self, files_config_json):
@@ -178,8 +176,66 @@ class FilesConfigurator():
 
 
 class DeploymentOrchestrator():
-    def __init__(self):
-        self.orchestrator = ""
+    def __init__(self, config_file):
+        self.cfg_con = ConfigConnector(config_file)
+        self.api_con = ApiConnector(
+            self.cfg_con.get_config_param(0, 'cluster_external_ipaddress'),
+            self.cfg_con.get_config_param(0, 'username'),
+            self.cfg_con.get_config_param(0, 'password')
+        )
+        self.net_conf = NetConfigurator(self.api_con)
+        self.cluster_config = ClusterConfigurator(self.api_con)
+        self.files_config = FilesConfigurator(self.api_con)
+
+    def deploy_network(self):
+        exist_net_with_vlan = self.net_conf.exist_network_with_vlan(
+            int(self.cfg_con.get_config_param(0, 'network_vlan')))
+        is_managed = True
+
+        if exist_net_with_vlan:
+            files_network = self.net_conf.get_network_by_vlan(
+                int(self.cfg_con.get_config_param(0, 'network_vlan')))
+            print("INFO: main: network exist with vlan: " +
+                  files_network[0]['uuid'])
+            is_managed = self.net_conf.is_managed_network(
+                files_network[0]['uuid'])
+
+        if is_managed:
+            print("INFO: main: Creating new network")
+            files_network_uuid = self.net_conf.create_network(
+                self.cfg_con.get_config_param(0, 'network_name'),
+                self.cfg_con.get_config_param(0, 'network_vlan'))
+            files_network = self.net_conf.get_network_by_uuid(
+                files_network_uuid)
+
+        else:
+            print("INFO: main: Unmanaged network with vlan {0} already exist.".format(
+                self.cfg_con.get_config_param(0, 'network_vlan')))
+            print("INFO: main: Using network '{0}' with uuid: '{1}' instead".format(
+                files_network[0]['name'], files_network[0]['uuid']))
+            self.cfg_con.set_config_param(
+                0, 'network_name', files_network[0]['name'])
+        return True
+
+    def deploy_ssh_key(self):
+        self.cluster_config.new_public_key(
+            self.cfg_con.configuration[0]['pub_key_name'],
+            self.cfg_con.configuration[0]['pub_key_string'])
+        return True
+
+    def deploy_files(self):
+        files_network = self.net_conf.get_network_by_vlan(
+            int(self.cfg_con.get_config_param(0, 'network_vlan')))
+
+        self.cfg_con.set_internal_network_uuid(
+            0, files_network[0]['uuid'])
+        self.cfg_con.set_external_network_uuid(
+            0, files_network[0]['uuid'])
+
+        self.files_config.software_download(
+            self.cfg_con.configuration[0]['files_software_version'])
+        self.files_config.deploy_files_server(
+            self.cfg_con.configuration[0]['files_configuration'])
 
 
 if __name__ == "__main__":
@@ -187,78 +243,38 @@ if __name__ == "__main__":
 
         urllib3.disable_warnings()
 
-        pp = pprint.PrettyPrinter(indent=2)
+        # ==========
+        parser = argparse.ArgumentParser(
+            description='Deploy a file server in a nutanix cluster.',
+            epilog='"And then, of course, I\'ve got this terrible pain in all the \
+            diodes down my left side."')
+        parser.add_argument('config_file', metavar='<config_file>', type=str,
+                            help='an integer for the accumulator')
+        parser.add_argument('-k', '--add_pub_key', dest='add_pub_key',
+                            action='store_true',
+                            help='Add public key to cluster.')
+        parser.add_argument('-n', '--create_network', dest='create_network',
+                            action='store_true',
+                            help='Add public key to cluster.')
+        parser.add_argument('-f', '--deploy_files', dest='deploy_files',
+                            action='store_true',
+                            help='Deploy instance of file server.')
 
-        cfg_con = ConfigConnector("./Marvin.json")
-        print()
-
-        api_con = ApiConnector(
-            cfg_con.get_config_param(0, 'cluster_external_ipaddress'),
-            cfg_con.get_config_param(0, 'username'),
-            cfg_con.get_config_param(0, 'password')
-        )
-
-        print("=" * 79)
-
-        # print(json.dumps(cfg_con.configuration[0], indent=4, sort_keys=True))
-
-        print("=" * 79)
-
-        # ----------------------------------------------------
-        # Validating network
-        net_conf = NetConfigurator(api_con)
-        exist_net_with_vlan = net_conf.exist_network_with_vlan(
-            int(cfg_con.get_config_param(0, 'network_vlan')))
-        is_managed = True
-
-        if exist_net_with_vlan:
-            files_network = net_conf.get_network_by_vlan(
-                int(cfg_con.get_config_param(0, 'network_vlan')))
-            print("INFO: main: network exist with vlan: " +
-                  files_network[0]['uuid'])
-            is_managed = net_conf.is_managed_network(
-                files_network[0]['uuid'])
-
-        if is_managed:
-            print("INFO: main: creating new network")
-            files_network_uuid = net_conf.create_network(cfg_con.get_config_param(0, 'network_name'),
-                                                         cfg_con.get_config_param(0, 'network_vlan'))
-            files_network = net_conf.get_network_by_uuid(files_network_uuid)
-
-        else:
-            print("INFO: main: Unmanaged network with vlan {0} already exist.".format(
-                cfg_con.get_config_param(0, 'network_vlan')))
-            print("INFO: main: Using network '{0}' with uuid: '{1}' instead".format(
-                files_network[0]['name'], files_network[0]['uuid']))
-            cfg_con.set_config_param(
-                0, 'network_name', files_network[0]['name'])
-
-        # print("CONFIGURATION: " + json.dumps(cfg_con.configuration))
-
-        # ----------------------------------------------------
-        # Creating network
-
-        # ----------------------------------------------------
-        # Adding cluster lockdown keys
-        # cluster_config = ClusterConfigurator(api_con)
-        # cluster_config.new_public_key(cfg_con.configuration[0]['pub_key_name'],
-        #                              cfg_con.configuration[0]['pub_key_string'])
-
-        # ----------------------------------------------------
-        # and working with files
-        files_config = FilesConfigurator(api_con)
-
-        cfg_con.set_internal_network_uuid(0, files_network[0]['uuid'])
-        cfg_con.set_external_network_uuid(0, files_network[0]['uuid'])
-
-        files_config.software_download(
-            cfg_con.configuration[0]['files_software_version'])
-        # files_config.deploy_files_server(
-        #    cfg_con.configuration[0]['files_configuration'])
+        args = parser.parse_args()
 
         print("=" * 79)
+        deploy = DeploymentOrchestrator(args.config_file)
+        if args.add_pub_key:
+            deploy.deploy_ssh_key()
 
-        print("*" * 79)
+        if args.create_network:
+            deploy.deploy_network()
+
+        if args.deploy_files:
+            deploy.deploy_files()
+        # ==========
+        print("=" * 79)
+
     except Exception as ex:
         print(ex)
         sys.exit(1)
