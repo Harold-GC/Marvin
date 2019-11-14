@@ -6,7 +6,7 @@ import random
 import requests
 import sys
 import traceback
-import pprint
+import time
 import urllib3
 import argparse
 
@@ -35,15 +35,15 @@ class ApiConnector():
 
     def _call_rest_api_get(self, api_url, apicall):
         cluster_url = api_url + apicall
-        print("INFO: call_rest_api_get: API Call %s" %
-              cluster_url)
+        # print("INFO: call_rest_api_get: API Call %s" %
+        #      cluster_url)
         server_response = self.session.get(cluster_url)
         return server_response.status_code, json.loads(server_response.text)
 
     def _call_rest_api_post(self, api_url, apicall, json_data):
         cluster_url = api_url + apicall
-        print("INFO: call_rest_api_post: API Call %s" %
-              cluster_url)
+        # print("INFO: call_rest_api_post: API Call %s" %
+        #      cluster_url)
         server_response = self.session.post(cluster_url, data=json_data)
         return server_response.status_code, json.loads(server_response.text)
 
@@ -164,15 +164,33 @@ class FilesConfigurator():
         print("INFO: software_download: Downloading files with info: " +
               new_files_json)
         status_code, json_response = self.api_con.call_rest_api_v2_post(
-            "upgrade/afs/softwares/" + files_version + "/download", new_files_json)
+            "upgrade/afs/softwares/" + files_version + "/download",
+            new_files_json)
         return json_response
 
     def deploy_files_server(self, files_config_json):
         print("INFO: deploy_files_server: Deploying files server with info: " +
-              json.dumps(files_config_json))
+              json.dumps(files_config_json) + ". Check cluster task for completion information.")
         status_code, json_response = self.api_con.call_rest_api_v1_post(
             "vfilers", json.dumps(files_config_json))
         return json_response
+
+    def get_software_download_percent(self, files_version):
+        software_information = self.get_software_information(files_version)
+        download_percentage = (
+            software_information['currentSizeInBytes'] * 100) / software_information['totalSizeInBytes']
+        return download_percentage
+
+    def get_software_information(self, files_version):
+        status_code, json_response = self.api_con.call_rest_api_v1_get(
+            "upgrade/afs/softwares")
+        all_version__software_information = json_response['entities']
+
+        for software_information in all_version__software_information:
+            if software_information['name'] == files_version:
+                return software_information
+
+        return {}
 
 
 class DeploymentOrchestrator():
@@ -195,13 +213,13 @@ class DeploymentOrchestrator():
         if exist_net_with_vlan:
             files_network = self.net_conf.get_network_by_vlan(
                 int(self.cfg_con.get_config_param(0, 'network_vlan')))
-            print("INFO: main: network exist with vlan: " +
+            print("INFO: deploy_network: Network exist with vlan: " +
                   files_network[0]['uuid'])
             is_managed = self.net_conf.is_managed_network(
                 files_network[0]['uuid'])
 
         if is_managed:
-            print("INFO: main: Creating new network")
+            print("INFO: deploy_network: Creating new network")
             files_network_uuid = self.net_conf.create_network(
                 self.cfg_con.get_config_param(0, 'network_name'),
                 self.cfg_con.get_config_param(0, 'network_vlan'))
@@ -209,9 +227,9 @@ class DeploymentOrchestrator():
                 files_network_uuid)
 
         else:
-            print("INFO: main: Unmanaged network with vlan {0} already exist.".format(
+            print("INFO: deploy_network: Unmanaged network with vlan {0} already exist.".format(
                 self.cfg_con.get_config_param(0, 'network_vlan')))
-            print("INFO: main: Using network '{0}' with uuid: '{1}' instead".format(
+            print("INFO: deploy_network: Using network '{0}' with uuid: '{1}' instead".format(
                 files_network[0]['name'], files_network[0]['uuid']))
             self.cfg_con.set_config_param(
                 0, 'network_name', files_network[0]['name'])
@@ -234,8 +252,22 @@ class DeploymentOrchestrator():
 
         self.files_config.software_download(
             self.cfg_con.configuration[0]['files_software_version'])
+
+        software_information = self.files_config.get_software_information(
+            self.cfg_con.configuration[0]['files_software_version'])
+        download_percentage = self.files_config.get_software_download_percent(
+            self.cfg_con.configuration[0]['files_software_version'])
+        while download_percentage < 100:
+            download_percentage = self.files_config.get_software_download_percent(
+                self.cfg_con.configuration[0]['files_software_version'])
+            print("INFO: deploy_files: Files version: {0} status {1} download {2}%".format(
+                software_information['name'], software_information['status'], str(download_percentage)))
+            time.sleep(10)
+        print("INFO: deploy_files: 30 sec waiting for software catalog to refresh.")
+        time.sleep(30)
         self.files_config.deploy_files_server(
             self.cfg_con.configuration[0]['files_configuration'])
+        return True
 
 
 if __name__ == "__main__":
@@ -243,20 +275,19 @@ if __name__ == "__main__":
 
         urllib3.disable_warnings()
 
-        # ==========
         parser = argparse.ArgumentParser(
             description='Deploy a file server in a nutanix cluster.',
             epilog='"And then, of course, I\'ve got this terrible pain in all the \
             diodes down my left side."')
         parser.add_argument('config_file', metavar='<config_file>', type=str,
                             help='an integer for the accumulator')
-        parser.add_argument('-k', '--add_pub_key', dest='add_pub_key',
+        parser.add_argument('-k', '--add-pub-key', dest='add_pub_key',
                             action='store_true',
                             help='Add public key to cluster.')
-        parser.add_argument('-n', '--create_network', dest='create_network',
+        parser.add_argument('-n', '--create-network', dest='create_network',
                             action='store_true',
                             help='Add public key to cluster.')
-        parser.add_argument('-f', '--deploy_files', dest='deploy_files',
+        parser.add_argument('-f', '--deploy-files', dest='deploy_files',
                             action='store_true',
                             help='Deploy instance of file server.')
 
@@ -272,7 +303,7 @@ if __name__ == "__main__":
 
         if args.deploy_files:
             deploy.deploy_files()
-        # ==========
+
         print("=" * 79)
 
     except Exception as ex:
